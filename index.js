@@ -4,14 +4,61 @@ const app = express();
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
+const admin = require("firebase-admin");
+const serviceAccount = require("./firebase-admin-service-key.json");
 const port = process.env.PORT || 3000;
 require("dotenv").config();
 
-app.use(cors({
-    origin: ["http://localhost:5173" ],
-    credentials: true,
-}));
+app.use(
+    cors({
+        origin: ["http://localhost:5173"],
+        credentials: true,
+    })
+);
 app.use(express.json());
+app.use(cookieParser());
+
+// const verifyToken = (req, res, next) => {
+//     const token = req?.cookies?.token;
+
+//     if(!token){
+//         res.status(401).send({ error: "কিরে বাঙ্গির নাতি টোকেন জেনারেট করে আয়"})
+//     }
+
+//     jwt.verify(token, process.env.JWT_ACCESS_TOKEN, (err, decoded) => {
+//         if (err) {
+//             return res.status(401).send({ error: "কিরে বাঙ্গির নাতি ভুল টোকেন দিচোস কেন!"})
+//         }
+
+//         req.decoded = decoded;
+//         next();
+//     })
+// }
+
+// !firebase admin initialization
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+
+const verifyFirebaseToken = async(req, res, next) => {
+    const authHeader = req.headers.authorization;
+    
+    if( !authHeader || !authHeader.startsWith("Bearer ") ){
+        return res.status(401).send({ error: "Unauthorized access" });
+    }
+    const token = authHeader.split(" ")[1];
+
+    try{
+        const decoded = await admin.auth().verifyIdToken(token);
+        console.log("decoded Token", decoded);
+        req.decoded = decoded;
+        next();
+    }
+    catch (error) {
+        return res.status(401).send({ error: "Unauthorized Access" })
+    }
+}
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.plgxbak.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -41,13 +88,23 @@ async function run() {
         app.post("/jwt", async (req, res) => {
             const { email } = req.body;
             const user = { email };
-            const token = jwt.sign(user, process.env.JWT_ACCESS_TOKEN, { expiresIn: "1h" });
-            res.send({ token });
+            const token = jwt.sign(user, process.env.JWT_ACCESS_TOKEN, {
+                expiresIn: "1d",
+            });
+            // Set the token in a cookie
+            res.cookie("token", token, {
+                httpOnly: true,
+                secure: false,
+            });
+            res.send({ success: true });
         });
 
         //* job related api
         app.get("/jobs", async (req, res) => {
             const email = req.query.email;
+            console.log(email);
+            // console.log("cookies from jobs api", req.cookies);
+
             const query = {};
             if (email) {
                 query.hr_email = email;
@@ -58,6 +115,11 @@ async function run() {
 
         app.get("/jobs/applications", async (req, res) => {
             const email = req.query.email;
+
+            if(email !== req.decoded.email){
+                res.status(403).send({ error: "Unauthorized access" });
+            }
+
             const query = { hr_email: email };
             const jobs = await jobCollection.find(query).toArray();
 
@@ -80,9 +142,17 @@ async function run() {
         });
 
         // get the posted jobs by a specific user
-        app.get("/applications", async (req, res) => {
+        app.get("/applications", verifyFirebaseToken, async (req, res) => {
             const email = req.query.email;
+
+            if(email !== req.decoded.email ){
+                return res.status(403).send({ error: "Unauthorized access" });
+            }
+
             const query = { email: email };
+
+            // console.log("req headers", req.headers);
+
             const result = await applicationCollection.find(query).toArray();
             for (const application of result) {
                 const jobId = application.jobId;
