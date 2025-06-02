@@ -44,7 +44,7 @@ admin.initializeApp({
 
 
 const verifyFirebaseToken = async(req, res, next) => {
-    const authHeader = req.headers.authorization;
+    const authHeader = req?.headers?.authorization;
     
     if( !authHeader || !authHeader.startsWith("Bearer ") ){
         return res.status(401).send({ error: "Unauthorized access" });
