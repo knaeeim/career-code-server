@@ -5,13 +5,15 @@ const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
 const admin = require("firebase-admin");
-const serviceAccount = require("./firebase-admin-service-key.json");
+
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString("utf8");
+const serviceAccount = JSON.parse(decoded);
 const port = process.env.PORT || 3000;
 require("dotenv").config();
 
 app.use(
     cors({
-        origin: ["http://localhost:5173"],
+        origin: ["https://career-code-6092a.web.app", "http://localhost:5173"],
         credentials: true,
     })
 );
@@ -58,6 +60,15 @@ const verifyFirebaseToken = async(req, res, next) => {
     catch (error) {
         return res.status(401).send({ error: "Unauthorized Access" })
     }
+}
+
+const verifyTokenEmail = (req, res, next) => {
+    // we are checking that who is requesting and who is logged in is same person or not? If not then we are sending response "Unauthorized Access".
+    if(req.query.email !== req.decoded.email){
+        return res.status(403).send({ error: "Unauthorized access" });
+    }
+    // if user is authentic then process to the next()
+    next();
 }
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.plgxbak.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -116,10 +127,6 @@ async function run() {
         app.get("/jobs/applications", async (req, res) => {
             const email = req.query.email;
 
-            if(email !== req.decoded.email){
-                res.status(403).send({ error: "Unauthorized access" });
-            }
-
             const query = { hr_email: email };
             const jobs = await jobCollection.find(query).toArray();
 
@@ -142,17 +149,10 @@ async function run() {
         });
 
         // get the posted jobs by a specific user
-        app.get("/applications", verifyFirebaseToken, async (req, res) => {
+        app.get("/applications", verifyFirebaseToken, verifyTokenEmail, async (req, res) => {
             const email = req.query.email;
-
-            if(email !== req.decoded.email ){
-                return res.status(403).send({ error: "Unauthorized access" });
-            }
-
             const query = { email: email };
-
             // console.log("req headers", req.headers);
-
             const result = await applicationCollection.find(query).toArray();
             for (const application of result) {
                 const jobId = application.jobId;
@@ -207,10 +207,10 @@ async function run() {
         });
 
         // Send a ping to confirm a successful connection
-        await client.db("admin").command({ ping: 1 });
-        console.log(
-            "Pinged your deployment. You successfully connected to MongoDB!"
-        );
+        // await client.db("admin").command({ ping: 1 });
+        // console.log(
+        //     "Pinged your deployment. You successfully connected to MongoDB!"
+        // );
     } finally {
         // Ensures that the client will close when you finish/error
         // await client.close();
